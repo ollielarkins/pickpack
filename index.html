@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PICK/PACK — Autonomous Warehouse Console</title>
+<style>
+  :root{
+    --bg:#f7f7f3; --ink:#141414; --line:#1a1a1a; --soft:#666; --faint:#bdbdbd;
+    --green:#0a7d20; --red:#c0331f; --sel:#1f6feb; --panel:#ffffff; --hl:#fff8d8;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--ink);font:12px/1.32 "DejaVu Sans Mono","Consolas","Courier New",monospace}
+  .app{display:flex;flex-direction:column;min-height:100vh}
+  a{color:var(--ink)}
+  u{text-underline-offset:2px}
+  /* header */
+  .nav{display:flex;justify-content:space-between;align-items:center;padding:3px 10px;border-bottom:1px solid var(--line)}
+  .nav .tabs span{cursor:pointer;margin:0 1px}
+  .nav .tabs span:hover{background:var(--hl)}
+  .nav .tabs .sep{color:var(--faint);cursor:default}
+  .status{display:flex;gap:20px;align-items:center;padding:3px 10px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .status b{font-weight:bold}
+  .status .sp{flex:1}
+  .toggle{cursor:pointer;border:1px solid var(--line);padding:0 5px}
+  /* panels */
+  .panel{border:1px solid var(--line);background:var(--panel);display:flex;flex-direction:column;min-height:0;min-width:0}
+  .ttl{padding:2px 7px;font-weight:bold;white-space:nowrap;display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid var(--faint)}
+  .ttl .r{font-weight:normal;color:var(--soft)}
+  .body{padding:5px 7px;overflow:auto;min-height:0}
+  /* layout */
+  .top{display:flex;gap:5px;padding:5px}
+  .top .map{flex:1.55;min-width:0}
+  .top .rcol{flex:1;display:flex;flex-direction:column;gap:5px;min-width:0}
+  .mid{display:flex;gap:5px;padding:0 5px 5px}
+  .mid .cA{flex:1.55;display:flex;flex-direction:column;gap:5px;min-width:0}
+  .mid .cB{flex:1;display:flex;flex-direction:column;gap:5px;min-width:0}
+  .r2{display:flex;gap:5px;min-height:0}
+  .r2>*{flex:1;min-width:0}
+  canvas{display:block;width:100%;image-rendering:pixelated;background:#0b0b0b}
+  #map{background:#ffffff}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;padding:3px 7px;border-top:1px solid var(--faint);color:var(--soft);font-size:11px}
+  /* tables */
+  table{border-collapse:collapse;width:100%}
+  th{text-align:left;font-weight:normal;text-decoration:underline;text-underline-offset:2px;padding:0 10px 2px 0;white-space:nowrap;color:#222}
+  td{padding:0 10px 0 0;white-space:nowrap}
+  td.n,th.n{text-align:right;padding-right:10px}
+  tr.sel td{background:#e7f0ff}
+  .muted{color:var(--soft)}
+  .ok{color:var(--green)} .bad{color:var(--red)} .selc{color:var(--sel)}
+  .bar{display:inline-block;width:46px;height:7px;border:1px solid var(--line);vertical-align:0;background:#fff}
+  .bar i{display:block;height:100%;background:#333}
+  /* allocation */
+  .kv{display:flex;justify-content:space-between;gap:8px}
+  .scores .row{display:flex;justify-content:space-between;gap:8px;padding:1px 0}
+  .scores .row.win{color:var(--green);font-weight:bold}
+  /* log */
+  #log{font-size:11px}
+  #log div{padding:1px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #log .tt{color:var(--soft)}
+  /* controls */
+  .ctl{display:flex;align-items:center;gap:8px;padding:1px 0}
+  .ctl .lab{width:78px;color:#222}
+  .b{cursor:pointer;user-select:none}
+  .b:hover{background:var(--hl)}
+  select{font:inherit;border:1px solid var(--line);background:#fff;padding:0 2px}
+  .sc-list span{display:block}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="nav">
+    <div class="tabs">
+      <span data-go="map">PICK/PACK</span><span class="sep"> | </span>
+      <span data-go="fleet"><u>F</u>LEET</span><span class="sep"> | </span>
+      <span data-go="batches"><u>B</u>ATCHES</span><span class="sep"> | </span>
+      <span data-go="orders"><u>O</u>RDERS</span><span class="sep"> | </span>
+      <span data-go="map"><u>M</u>AP</span><span class="sep"> | </span>
+      <span data-go="log"><u>L</u>OG</span><span class="sep"> | </span>
+      <span data-go="ctl"><u>S</u>ETTINGS</span><span class="sep"> | </span>
+      <span data-href="compare.html"><u>C</u>OMPARE</span><span class="sep"> | </span>
+      <span data-href="leaderboard.html">LEADERBOARD</span>
+    </div>
+    <div id="clock">-------‑-- --:--:--</div>
+  </div>
+  <div class="status">
+    <span>Fleet: <b id="st-fleet">0</b></span>
+    <span>Pending: <b id="st-pending">0</b></span>
+    <span>Queued: <b id="st-queued">0</b></span>
+    <span>Delivered: <b id="st-delivered">0</b></span>
+    <span>Thruput: <b id="st-thruput">0/min</b></span>
+    <span>View: <b>top</b></span>
+    <span>HDG: <b id="st-hdg">0</b></span>
+    <span>SPD: <b id="st-spd">0 m/s</b></span>
+    <span class="sp"></span>
+    <span class="toggle" id="autorefresh">[auto-refresh: on]</span>
+  </div>
+
+  <div class="top">
+    <div class="panel map" id="p-map">
+      <div class="ttl">WAREHOUSE MAP (top view)<span class="r" id="grid-dims"></span></div>
+      <canvas id="map"></canvas>
+      <div class="legend">
+        <span>[ ] Shelf</span><span>--- Aisle</span><span class="ok">o Pick Pt</span>
+        <span>▣ Pack Stn</span><span>R Robot</span><span>--- Route</span>
+        <span class="muted">· click shelf for details / click robot for camera</span>
+      </div>
+    </div>
+    <div class="rcol">
+      <div class="panel" style="flex:1">
+        <div class="ttl">ISOMETRIC 3D VIEW</div>
+        <canvas id="iso"></canvas>
+      </div>
+      <div class="panel" style="flex:1">
+        <div class="ttl">FORWARD CAM (<span id="cam-id">R1</span>)<span class="r">HDG: <span id="fpv-hdg">0</span>°&nbsp;&nbsp;SPD: <span id="fpv-spd">0</span> m/s</span></div>
+        <canvas id="fpv"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <div class="mid">
+    <div class="cA">
+      <div class="panel" id="p-fleet">
+        <div class="ttl">FLEET STATUS</div>
+        <div class="body" style="max-height:190px"><table>
+          <thead><tr><th>ID</th><th>STATUS</th><th>MODE</th><th>BATT</th><th>POS (x,y)</th><th>HDG</th><th>SPD</th><th>TASK</th><th>BATCH</th><th>ETA</th><th>LAST EVENT</th></tr></thead>
+          <tbody id="fleet-body"></tbody>
+        </table></div>
+      </div>
+      <div class="r2">
+        <div class="panel" id="p-batches">
+          <div class="ttl">ACTIVE BATCHES</div>
+          <div class="body" style="max-height:150px"><table>
+            <thead><tr><th>BATCH</th><th>STATUS</th><th>ITEMS</th><th>PICKS</th><th>ROBOT</th><th>PROGRESS</th><th>ETA</th><th>DEST</th></tr></thead>
+            <tbody id="ab-body"></tbody>
+          </table></div>
+        </div>
+        <div class="panel" id="p-orders" style="flex:.72">
+          <div class="ttl">ORDERS IN</div>
+          <div class="body" style="max-height:150px"><table>
+            <thead><tr><th>ORDER</th><th>ITEMS</th><th>STATUS</th><th>ETA</th></tr></thead>
+            <tbody id="ord-body"></tbody>
+          </table></div>
+        </div>
+      </div>
+      <div class="r2">
+        <div class="panel" id="p-log" style="flex:1.5">
+          <div class="ttl">EVENT LOG (latest)</div>
+          <div class="body" id="log" style="max-height:150px"></div>
+        </div>
+        <div class="panel" id="p-md" style="flex:.7">
+          <div class="ttl">MAP DETAILS (selected)</div>
+          <div class="body" id="md-body" style="max-height:150px"></div>
+        </div>
+      </div>
+    </div>
+    <div class="cB">
+      <div class="panel" id="p-ps">
+        <div class="ttl">PACK STATIONS</div>
+        <div class="body"><table>
+          <thead><tr><th>ID</th><th class="n">QUEUE</th><th class="n">UTIL</th><th class="n">ETA NEXT</th></tr></thead>
+          <tbody id="ps-body"></tbody>
+        </table></div>
+      </div>
+      <div class="panel">
+        <div class="ttl">BATCH ALLOCATION (live)</div>
+        <div class="body">
+          <div class="kv"><span>Strategy:</span><span id="ba-strategy">distance + util + queue</span></div>
+          <div class="kv"><span>Weight:</span><span id="ba-weight"></span></div>
+          <div style="margin:5px 0 3px">Evaluating pack stations for<br><span id="ba-batch" class="muted">—</span></div>
+          <div class="scores" id="ba-scores"></div>
+        </div>
+      </div>
+      <div class="r2">
+        <div class="panel" id="p-ctl">
+          <div class="ttl">ROBOT CAMERA CONTROL</div>
+          <div class="body">
+            <div class="ctl"><span class="lab"><u>S</u>elect Robot</span> <select id="rc-robot"></select></div>
+            <div class="ctl"><span class="lab">View</span> [ forward ]</div>
+            <div class="ctl"><span class="lab">Controls</span>
+              <span class="b" id="rc-play">[ play ]</span>
+              <span class="b" id="rc-pause">[ pause ]</span>
+              <span class="b" id="rc-step">[ step ]</span>
+            </div>
+            <div class="ctl"><span class="lab">Speed</span>
+              <span class="b" id="rc-slow">[ - ]</span> <span id="rc-speed">x1.0</span> <span class="b" id="rc-fast">[ + ]</span>
+            </div>
+            <div class="ctl"><span class="lab">HDG</span> [ <span id="rc-hdg">0</span>° ]</div>
+          </div>
+        </div>
+        <div class="panel" id="p-sc" style="flex:.6">
+          <div class="ttl">SHORTCUTS</div>
+          <div class="body sc-list">
+            <span>m &mdash; map</span><span>f &mdash; fleet</span><span>b &mdash; batches</span>
+            <span>o &mdash; orders</span><span>l &mdash; log</span><span>s &mdash; settings</span>
+            <span>space &mdash; play/pause</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+//=====================================================================
+// PICK/PACK — autonomous warehouse console (light ops-console UI).
+//=====================================================================
+
+//------------------------------- GRID --------------------------------
+const COLS=160, ROWS=96, CELL=5;
+const CELL_M=0.5;
+const EMPTY=0, WALL=1, SHELF=2, PACK=3;
+const grid=new Int8Array(COLS*ROWS);
+const at=(x,y)=>grid[y*COLS+x];
+const setC=(x,y,t)=>{ grid[y*COLS+x]=t; };
+const inB=(x,y)=>x>=0&&y>=0&&x<COLS&&y<ROWS;
+const walkable=(x,y)=>inB(x,y)&&(at(x,y)===EMPTY||at(x,y)===PACK);
+function hash(x,y,s){ let h=(x*73856093)^(y*19349663)^(s*83492791); h=(h^(h>>>13))>>>0; return h; }
+
+const shelves=new Map(), skuIndex=new Map(), skuCentroid=new Map();
+const stations=[], catalog=[], orderPool=[];
+const cellClass=new Uint8Array(COLS*ROWS);
+const DISPATCH={ x:Math.floor(COLS/2), y:ROWS-4 };
+const LAYOUT={ margin:4, dockBand:7, xPeriod:16, xAisle:3, rackPeriod:4 };
+
+function shelfIdOf(x,y){
+  const regL=LAYOUT.margin, regT=LAYOUT.margin;
+  const rackRow=Math.floor((y-regT)/LAYOUT.rackPeriod), bay=Math.floor((x-regL)/LAYOUT.xPeriod);
+  return "R"+String(rackRow+1).padStart(2,"0")+"-B"+String(bay+1).padStart(2,"0")+"-"+String(x).padStart(3,"0");
+}
+function buildStructure(){
+  for(let x=0;x<COLS;x++){ setC(x,0,WALL); setC(x,ROWS-1,WALL); }
+  for(let y=0;y<ROWS;y++){ setC(0,y,WALL); setC(COLS-1,y,WALL); }
+  const {margin,dockBand,xPeriod,xAisle,rackPeriod}=LAYOUT;
+  const regL=margin, regR=COLS-1-margin, regT=margin, regB=ROWS-1-dockBand;
+  for(let y=regT;y<=regB;y++){ if(((y-regT)%rackPeriod)>=2) continue; for(let x=regL;x<=regR;x++){ if(((x-regL)%xPeriod)<xAisle) continue; setC(x,y,SHELF); } }
+  // FIVE named pack stations PS1..PS5 along the bottom thoroughfare
+  const dockY=ROWS-1-3;
+  [0.12,0.31,0.50,0.69,0.88].forEach((f,i)=>{ const x=Math.round(COLS*f); setC(x,dockY,PACK); stations.push({x,y:dockY,id:"PS"+(i+1),queue:0,util:0,served:0}); });
+}
+function buildSlots(){
+  const blocks=new Map();
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){ if(at(x,y)!==SHELF)continue; const k=Math.floor(x/2)+"_"+y; if(!blocks.has(k))blocks.set(k,[]); blocks.get(k).push([x,y]); }
+  const nd=(cx,cy)=>{ let d=1e9; for(const s of stations) d=Math.min(d,Math.abs(s.x-cx)+Math.abs(s.y-cy)); return d; };
+  const scored=[...blocks.values()].map(cells=>{ let sx=0,sy=0; for(const c of cells){sx+=c[0];sy+=c[1];} return {cells, prime:nd(sx/cells.length, sy/cells.length)}; });
+  scored.sort((a,b)=>a.prime-b.prime);
+  const free=scored.slice();
+  const takeAt=pct=>{ if(!free.length)return null; const i=Math.min(free.length-1,Math.max(0,Math.floor(pct*free.length))); return free.splice(i,1)[0]; };
+  let skuN=0;
+  while(free.length){
+    skuN++;
+    const roll=Math.random(); const cls = roll<0.25?"A" : roll<0.60?"B" : "C"; const clsN=cls==="A"?1:cls==="B"?2:3;
+    const primePct = cls==="A"? Math.random()*0.30 : cls==="B"? 0.25+Math.random()*0.45 : 0.55+Math.random()*0.45;
+    const locs=[takeAt(primePct)].filter(Boolean);
+    const extra = Math.random()<0.18?2 : Math.random()<0.45?1 : 0;
+    for(let e=0;e<extra && free.length;e++){ const b=takeAt(Math.random()); if(b)locs.push(b); }
+    const sku={ id:cls+"-"+String(skuN).padStart(4,"0"), cls, weight: cls==="A"?8:cls==="B"?3:1, nloc:locs.length };
+    catalog.push(sku); for(let w=0;w<sku.weight;w++) orderPool.push(sku.id);
+    const base = cls==="A"?6 : cls==="B"?5 : 4;
+    for(const blk of locs) for(const [x,y] of blk.cells){
+      shelves.set(x+","+y,{ id:shelfIdOf(x,y), items:[{sku:sku.id, qty:base+(hash(x,y,7)%4)}] });
+      cellClass[y*COLS+x]=clsN;
+      if(!skuIndex.has(sku.id)) skuIndex.set(sku.id,[]); skuIndex.get(sku.id).push(x+","+y);
+    }
+  }
+  for(const [sku,cells] of skuIndex){ let sx=0,sy=0; for(const k of cells){const[x,y]=k.split(",").map(Number);sx+=x;sy+=y;} skuCentroid.set(sku,{x:sx/cells.length,y:sy/cells.length}); }
+}
+buildStructure(); buildSlots();
+function nearestSlot(sku,ref){ const cells=skuIndex.get(sku)||[]; let best=null,bd=1e9; for(const k of cells){const[x,y]=k.split(",").map(Number); const d=Math.abs(x-ref.x)+Math.abs(y-ref.y); if(d<bd){bd=d;best={x,y};}} return best; }
+
+//------------------------------- A* ----------------------------------
+function astar(sx,sy,gx,gy){
+  if(!walkable(sx,sy)||!walkable(gx,gy)) return null;
+  const N=COLS*ROWS, idx=(x,y)=>y*COLS+x;
+  const came=new Int32Array(N).fill(-1), g=new Float64Array(N).fill(Infinity), closed=new Uint8Array(N);
+  const h=(x,y)=>Math.abs(x-gx)+Math.abs(y-gy);
+  const hn=[],hf=[];
+  const push=(n,f)=>{ hn.push(n);hf.push(f); let i=hn.length-1; while(i>0){const p=(i-1)>>1; if(hf[p]<=hf[i])break; const tn=hn[p],tf=hf[p]; hn[p]=hn[i];hf[p]=hf[i];hn[i]=tn;hf[i]=tf; i=p;} };
+  const pop=()=>{ const n=hn[0],ln=hn.pop(),lf=hf.pop(); if(hn.length){hn[0]=ln;hf[0]=lf; let i=0,L=hn.length; while(true){let l=2*i+1,r=2*i+2,s=i; if(l<L&&hf[l]<hf[s])s=l; if(r<L&&hf[r]<hf[s])s=r; if(s===i)break; const tn=hn[s],tf=hf[s];hn[s]=hn[i];hf[s]=hf[i];hn[i]=tn;hf[i]=tf; i=s;}} return n; };
+  const s0=idx(sx,sy); g[s0]=0; push(s0,h(sx,sy));
+  const N4=[[1,0],[-1,0],[0,1],[0,-1]];
+  while(hn.length){
+    const cur=pop(); if(closed[cur])continue; closed[cur]=1;
+    const cx=cur%COLS, cy=(cur-cx)/COLS;
+    if(cx===gx&&cy===gy){ const path=[]; let c=cur; while(c!==-1){const x=c%COLS,y=(c-x)/COLS; path.push([x,y]); c=came[c];} return path.reverse(); }
+    for(const [dx,dy] of N4){ const nx=cx+dx,ny=cy+dy; if(!walkable(nx,ny))continue; const ni=idx(nx,ny); if(closed[ni])continue; const tg=g[cur]+1; if(tg<g[ni]){g[ni]=tg;came[ni]=cur;push(ni,tg+h(nx,ny));} }
+  }
+  return null;
+}
+const manh=(a,b)=>Math.abs(a.x-b.x)+Math.abs(a.y-b.y);
+function accessNode(sx,sy,from){ let best=null,bd=1e9; for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){ const nx=sx+dx,ny=sy+dy; if(walkable(nx,ny)){ const d=Math.abs(nx-from.x)+Math.abs(ny-from.y); if(d<bd){bd=d;best=[nx,ny];} } } return best; }
+
+//------------------------- SPLINE ------------------------------------
+function catmullRom(points, sps=14){
+  if(points.length===0){ const o=[]; o.totalLen=0; return o; }
+  const P=points.map(p=>({x:p[0]+0.5,y:p[1]+0.5}));
+  if(P.length===1){ const o=[{x:P[0].x,y:P[0].y,s:0}]; o.totalLen=0; return o; }
+  const pts=[P[0],...P,P[P.length-1]]; const out=[];
+  for(let i=1;i<pts.length-2;i++){ const p0=pts[i-1],p1=pts[i],p2=pts[i+1],p3=pts[i+2];
+    for(let s=0;s<sps;s++){ const t=s/sps,t2=t*t,t3=t2*t;
+      out.push({ x:0.5*((2*p1.x)+(-p0.x+p2.x)*t+(2*p0.x-5*p1.x+4*p2.x-p3.x)*t2+(-p0.x+3*p1.x-3*p2.x+p3.x)*t3),
+                 y:0.5*((2*p1.y)+(-p0.y+p2.y)*t+(2*p0.y-5*p1.y+4*p2.y-p3.y)*t2+(-p0.y+3*p1.y-3*p2.y+p3.y)*t3) }); } }
+  out.push({x:P[P.length-1].x,y:P[P.length-1].y});
+  let len=0; out[0].s=0; for(let i=1;i<out.length;i++){ len+=Math.hypot(out[i].x-out[i-1].x,out[i].y-out[i-1].y); out[i].s=len; }
+  out.totalLen=len; return out;
+}
+function splineAt(sp,s){ let lo=0,hi=sp.length-1; while(lo<hi){const m=(lo+hi)>>1; if(sp[m].s<s)lo=m+1; else hi=m;} const i=Math.max(1,lo); const a=sp[i-1],b=sp[i]; const seg=b.s-a.s||1e-6,t=(s-a.s)/seg; return {x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t}; }
+
+//============================ FLEET ==================================
+const ROBOT_COLORS=["#1f6feb","#d1242f","#1a7f37","#9a6700","#8250df","#bf3989","#0a7ea4","#cf5500","#6e40c9","#2da44e","#c2410c","#57606a"];
+const N_ROBOTS=12;
+const robots=[];
+for(let i=0;i<N_ROBOTS;i++){
+  robots.push({ id:i+1, color:ROBOT_COLORS[i], x:6+i*12.5+0.5, y:ROWS-2.5, angle:-Math.PI/2, targetAngle:-Math.PI/2,
+    maxSpeed:3.0, speed:0, batt:45+Math.random()*55, spline:null, s:0, state:"idle", route:null, batch:null,
+    legIndex:0, curLeg:null, pauseT:0, station:null, chargeStation:null, pickedUnits:0, lastEvent:"online" });
+}
+robots[4].batt=20;                              // will charge soon
+robots[11].state="offline"; robots[11].batt=0; robots[11].lastEvent="offline (maintenance)";
+let sel=0, cam=robots[0];
+
+//============================ ORCHESTRATOR ==========================
+const W={ a:0.5, b:0.3, c:0.2 };                // J = dist*0.5 + queue*0.3 + util*0.2
+const MAX_ORDERS=4, MAX_UNITS=10, PROX=26, PICK_T=0.7, PACK_T=1.4;
+let pendingOrders=[], batchQueue=[], allOrders=[];
+let nextOrderId=10000, nextBatchId=100;
+let simTime=0, ordersIn=0, batchesMade=0, picksDone=0, delivered=0, splitsDone=0, shortsDone=0;
+let lastDecision=null;
+
+function orderUnits(o){ return o.lines.reduce((s,l)=>s+l.qty,0); }
+function spawnOrder(){
+  const r=Math.random(); const nLines=r<0.5?1:r<0.82?2:3;
+  const used=new Set(), lines=[]; let guard=0; const bulk=Math.random()<0.26;
+  while(lines.length<nLines && guard++<50){ const s=orderPool[(Math.random()*orderPool.length)|0]; if(used.has(s))continue; used.add(s); lines.push({sku:s, qty: bulk?(6+(Math.random()*10|0)):(1+(Math.random()*4|0)) }); }
+  const pr = Math.random()<0.12?2 : Math.random()<0.35?1 : 0;
+  let lx=0,ly=0; for(const l of lines){ const c=nearestSlot(l.sku,DISPATCH)||skuCentroid.get(l.sku); lx+=c.x; ly+=c.y; } lx/=lines.length; ly/=lines.length;
+  const o={ id:nextOrderId++, lines, priority:pr, t:simTime, loc:{x:lx,y:ly}, status:"queued", batchId:null };
+  pendingOrders.push(o); allOrders.push(o); if(allOrders.length>60) allOrders.shift(); ordersIn++;
+  log(pr?"p":"t","order O-"+o.id+" · "+lines.map(l=>l.qty+"× "+l.sku).join("  ")+(pr?(pr===2?"  [URGENT]":"  [PRIO]"):""));
+}
+function batchCentroid(b){ let x=0,y=0; for(const o of b.orders){x+=o.loc.x;y+=o.loc.y;} return {x:x/b.orders.length,y:y/b.orders.length}; }
+function formOneBatch(){
+  if(!pendingOrders.length) return null;
+  pendingOrders.sort((a,b)=> b.priority-a.priority || a.t-b.t);
+  const seed=pendingOrders[0];
+  const batch={ id:nextBatchId++, orders:[seed], units:orderUnits(seed), priority:seed.priority };
+  let cen={x:seed.loc.x,y:seed.loc.y};
+  for(let i=1;i<pendingOrders.length;i++){
+    if(batch.orders.length>=MAX_ORDERS||batch.units>=MAX_UNITS) break;
+    const o=pendingOrders[i];
+    if(manh(o.loc,cen)<=PROX && batch.units+orderUnits(o)<=MAX_UNITS){ batch.orders.push(o); batch.units+=orderUnits(o); batch.priority=Math.max(batch.priority,o.priority); cen=batchCentroid(batch); }
+  }
+  batch.loc={x:cen.x,y:cen.y}; batch.totalItems=batch.units;
+  for(const o of batch.orders){ o.status="batched"; o.batchId=batch.id; }
+  const take=new Set(batch.orders); pendingOrders=pendingOrders.filter(o=>!take.has(o));
+  batchesMade++; log("b","batch B"+batch.id+" formed · "+batch.orders.length+" orders / "+batch.units+" units"+(batch.priority?" *":""));
+  return batch;
+}
+function allocate(sku,qty,ref){
+  const cells=skuIndex.get(sku)||[]; const cand=[];
+  for(const k of cells){ const it=shelves.get(k).items.find(i=>i.sku===sku); if(it&&it.qty>0){ const [x,y]=k.split(",").map(Number); cand.push({x,y,it,d:Math.abs(x-ref.x)+Math.abs(y-ref.y)}); } }
+  cand.sort((a,b)=>a.d-b.d);
+  const out=[]; let need=qty;
+  for(const c of cand){ if(need<=0)break; const take=Math.min(need,c.it.qty); out.push({x:c.x,y:c.y,sku,take}); need-=take; }
+  return out;
+}
+function orderStops(stops,start){
+  if(stops.length<=1) return stops;
+  const rem=stops.slice(), ord=[]; let cur=start;
+  while(rem.length){ let bi=0,bd=1e9; for(let i=0;i<rem.length;i++){const d=manh(cur,rem[i]); if(d<bd){bd=d;bi=i;}} cur=rem[bi]; ord.push(cur); rem.splice(bi,1); }
+  const tour=o=>{ let L=manh(start,o[0]); for(let i=0;i<o.length-1;i++)L+=manh(o[i],o[i+1]); return L; };
+  let best=ord, improved=true;
+  while(improved){ improved=false; for(let i=0;i<best.length-1;i++)for(let j=i+1;j<best.length;j++){ const no=best.slice(0,i).concat(best.slice(i,j+1).reverse(),best.slice(j+1)); if(tour(no)<tour(best)-1e-6){ best=no; improved=true; } } }
+  return best;
+}
+function chooseStation(from,batchId,robotId){
+  const MAXD=COLS+ROWS; let best=null,bj=1e9; const scores=[];
+  for(const s of stations){ const d=manh(from,s); const J=W.a*(d/MAXD*100)+W.b*s.queue+W.c*(s.util*10); scores.push({id:s.id,J}); if(J<bj){bj=J;best=s;} }
+  lastDecision={chosen:best.id, scores, batchId, robotId};
+  return best;
+}
+function buildRoute(batch,robot){
+  const ref={x:Math.floor(robot.x),y:Math.floor(robot.y)};
+  const pickMap=new Map();
+  for(const o of batch.orders) for(const ln of o.lines){
+    const alloc=allocate(ln.sku,ln.qty,ref); const got=alloc.reduce((s,a)=>s+a.take,0);
+    if(alloc.length>1){ splitsDone++; log("b","R"+robot.id+" combine "+ln.qty+"× "+ln.sku+": "+alloc.map(a=>a.take+"@"+shelves.get(a.x+","+a.y).id).join(" + ")); }
+    if(got<ln.qty){ shortsDone++; log("e","short "+(ln.qty-got)+"× "+ln.sku+" (backorder)"); }
+    for(const a of alloc){ const k=a.x+","+a.y; if(!pickMap.has(k))pickMap.set(k,[]); const arr=pickMap.get(k); const ex=arr.find(p=>p.sku===a.sku); if(ex)ex.qty+=a.take; else arr.push({sku:a.sku,qty:a.take}); }
+  }
+  let stops=[...pickMap.entries()].map(([k,picks])=>{const[x,y]=k.split(",").map(Number);return{x,y,picks};});
+  stops=orderStops(stops,ref);
+  const last=stops.length?stops[stops.length-1]:ref;
+  const station=chooseStation(last,batch.id,robot.id);
+  const legs=[]; let from=ref;
+  for(const st of stops){ const acc=accessNode(st.x,st.y,from); if(!acc)continue; const p=astar(from.x,from.y,acc[0],acc[1]); if(!p)continue; legs.push({cells:p,type:"pick",stop:st,face:[st.x,st.y]}); from={x:acc[0],y:acc[1]}; }
+  const pp=astar(from.x,from.y,station.x,station.y); if(pp) legs.push({cells:pp,type:"pack",station});
+  let tc=0; for(const lg of legs) tc+=lg.cells.length;
+  return {legs,station,stops,batch,distM:Math.round(tc*CELL_M)};
+}
+function tryAssign(){
+  let idle=robots.filter(r=>r.state==="idle"&&!r.route&&r.batt>=22);
+  while(idle.length && batchQueue.length){
+    let br=0,bb=0,bd=1e9;
+    for(let i=0;i<idle.length;i++)for(let j=0;j<batchQueue.length;j++){ const d=manh(idle[i],batchQueue[j].loc); if(d<bd){bd=d;br=i;bb=j;} }
+    const r=idle[br]; idle.splice(br,1); const batch=batchQueue.splice(bb,1)[0];
+    const route=buildRoute(batch,r);
+    if(!route.legs.length){ log("e","batch B"+batch.id+" empty route"); continue; }
+    r.route=route; r.batch=batch; r.station=route.station; r.legIndex=0; r.pickedUnits=0; route.station.queue++;
+    for(const o of batch.orders) o.status="picking";
+    r.lastEvent="assigned B"+batch.id; log("p","R"+r.id+" ◂ B"+batch.id+" · "+route.stops.length+" stops · "+route.distM+"m → "+route.station.id);
+    beginLeg(r);
+  }
+}
+function sendToCharge(r){
+  let best=null,bd=1e9; const rp={x:Math.floor(r.x),y:Math.floor(r.y)};
+  for(const s of stations){ const d=manh(rp,s); if(d<bd){bd=d;best=s;} }
+  const p=astar(rp.x,rp.y,best.x,best.y); if(!p)return;
+  r.route={legs:[{cells:p,type:"charge",station:best}], station:best, stops:[], distM:Math.round(p.length*CELL_M), batch:null};
+  r.batch=null; r.legIndex=0; r.chargeStation=best; r.lastEvent="low batt → "+best.id; beginLeg(r);
+}
+function beginLeg(r){
+  const leg=r.route.legs[r.legIndex]; if(!leg){ finishBatch(r); return; }
+  r.curLeg=leg; r.spline=catmullRom(leg.cells,14); r.s=0;
+  r.state = leg.type==="pick"?"to_pick" : leg.type==="pack"?"to_pack" : "to_charge";
+}
+function arriveLeg(r){
+  r.spline=null; r.speed=0;
+  if(r.curLeg.type==="pick"){ r.state="picking"; r.pauseT=PICK_T+0.15*r.curLeg.stop.picks.length; r.lastEvent="picking @ "+shelves.get(r.curLeg.stop.x+","+r.curLeg.stop.y).id; }
+  else if(r.curLeg.type==="pack"){ r.state="packing"; r.pauseT=PACK_T; r.lastEvent="enroute pack "+r.station.id; }
+  else { r.state="charging"; r.lastEvent="charging @ "+r.chargeStation.id; }
+}
+function doPicks(r,stop){
+  for(const pk of stop.picks){ const cell=shelves.get(stop.x+","+stop.y); const it=cell.items.find(i=>i.sku===pk.sku); if(it)it.qty=Math.max(0,it.qty-pk.qty); picksDone++; r.pickedUnits+=pk.qty; }
+  hotShelves.set(stop.x+","+stop.y,1);
+  r.lastEvent="picked "+stop.picks.map(p=>p.qty+"× "+p.sku).join(", ")+" @ "+shelves.get(stop.x+","+stop.y).id;
+  log("d",r.lastEvent.replace(/^/,"R"+r.id+" "));
+}
+function finishBatch(r){
+  const st=r.station, b=r.batch;
+  if(st){ st.queue=Math.max(0,st.queue-1); st.served++; }
+  if(b){ delivered+=b.orders.length; for(const o of b.orders){ o.status="shipped"; o.shipT=simTime; } }
+  r.lastEvent="delivered "+(b?("B"+b.id):"")+" → "+(st?st.id:"");
+  log("d","R"+r.id+" "+r.lastEvent+"  ["+delivered+" shipped]");
+  r.route=null; r.batch=null; r.station=null; r.curLeg=null; r.spline=null; r.speed=0; r.state="idle";
+}
+const hotShelves=new Map();
+
+//============================ UPDATE / LOOP =========================
+function updateRobot(r,dt){
+  if(r.state==="offline"){ return; }
+  let da=r.targetAngle-r.angle; while(da>Math.PI)da-=2*Math.PI; while(da<-Math.PI)da+=2*Math.PI; r.angle+=da*Math.min(1,dt*6);
+  const moving = r.state==="to_pick"||r.state==="to_pack"||r.state==="to_charge";
+  if(moving){
+    const sp=r.spline; if(!sp||sp.totalLen<1e-6){ arriveLeg(r); }
+    else { r.speed=Math.min(r.maxSpeed, r.speed+dt*2.2); const rem=sp.totalLen-r.s; if(rem<2.0) r.speed=Math.max(0.3,r.maxSpeed*(rem/2.0));
+      r.s=Math.min(sp.totalLen,r.s+r.speed*dt); const p=splineAt(sp,r.s), ahead=splineAt(sp,Math.min(sp.totalLen,r.s+0.3));
+      r.targetAngle=Math.atan2(ahead.y-p.y,ahead.x-p.x); r.x=p.x; r.y=p.y; if(r.s>=sp.totalLen-1e-3) arriveLeg(r); }
+    r.batt=Math.max(0.5,r.batt-dt*0.32);
+  } else if(r.state==="picking"){
+    if(r.curLeg) r.targetAngle=Math.atan2((r.curLeg.face[1]+0.5)-r.y,(r.curLeg.face[0]+0.5)-r.x);
+    r.speed=0; r.batt=Math.max(0.5,r.batt-dt*0.05); r.pauseT-=dt; if(r.pauseT<=0){ doPicks(r,r.curLeg.stop); r.legIndex++; beginLeg(r); }
+  } else if(r.state==="packing"){
+    r.speed=0; r.batt=Math.max(0.5,r.batt-dt*0.05); r.pauseT-=dt; if(r.pauseT<=0) finishBatch(r);
+  } else if(r.state==="charging"){
+    r.speed=0; r.batt=Math.min(100,r.batt+dt*7); if(r.batt>=98){ r.route=null; r.curLeg=null; r.chargeStation=null; r.state="idle"; r.lastEvent="charged 100%"; }
+  } else { r.speed=Math.max(0,r.speed-dt*8); r.batt=Math.max(0.5,r.batt-dt*0.01); }
+}
+
+let tOrder=0,tBatch=0,tAssign=0,tRestock=0,tDash=0;
+function intakeInterval(){ return 1.6*(1+pendingOrders.length/7); }
+function scheduler(dt){
+  tOrder+=dt; if(tOrder>=intakeInterval()){ tOrder=0; if(pendingOrders.length<24) spawnOrder(); }
+  tBatch+=dt; if(tBatch>=0.9){ tBatch=0; while(pendingOrders.length && batchQueue.length<8){ const b=formOneBatch(); if(b)batchQueue.push(b); else break; } }
+  tAssign+=dt; if(tAssign>=0.3){ tAssign=0; tryAssign(); for(const r of robots){ if(r.state==="idle"&&!r.route&&r.batt<22) sendToCharge(r); } }
+  tRestock+=dt; if(tRestock>=4){ tRestock=0; restock(); }
+  tDash+=dt; if(tDash>=0.25){ tDash=0; if(autoRefresh) renderDash(); }
+  for(const [k,v] of hotShelves){ const nv=v*0.96; if(nv<0.04)hotShelves.delete(k); else hotShelves.set(k,nv); }
+  for(const s of stations){ s.util += ((s.queue>0?1:0)-s.util)*0.03; }
+  // prune shipped orders
+  if(allOrders.length>40) allOrders=allOrders.filter(o=>o.status!=="shipped"||simTime-(o.shipT||0)<8);
+}
+function restock(){ const keys=[...shelves.keys()]; for(let i=0;i<260;i++){ const k=keys[(Math.random()*keys.length)|0]; const it=shelves.get(k).items[0]; if(it.qty<12) it.qty+=2+(Math.random()*5|0); } }
+
+//---------------------------- MAP RENDER (light) ---------------------
+const mapCanvas=document.getElementById("map");
+mapCanvas.width=COLS*CELL; mapCanvas.height=ROWS*CELL;
+const mctx=mapCanvas.getContext("2d");
+const mapBG=document.createElement("canvas"); mapBG.width=COLS*CELL; mapBG.height=ROWS*CELL;
+document.getElementById("grid-dims").textContent=COLS+"×"+ROWS+" · "+(COLS*ROWS).toLocaleString()+" cells";
+let selectedShelf=null;
+
+function renderStaticMap(){
+  const c=mapBG.getContext("2d");
+  c.fillStyle="#ffffff"; c.fillRect(0,0,mapBG.width,mapBG.height);
+  for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){
+    const t=at(x,y); if(t===EMPTY)continue;
+    if(t===SHELF){ const cc=cellClass[y*COLS+x]; c.fillStyle = cc===1?"#e3e3e3" : cc===2?"#ececec" : "#f3f3f3"; c.fillRect(x*CELL,y*CELL,CELL,CELL); c.strokeStyle="#cfcfcf"; c.lineWidth=1; c.strokeRect(x*CELL+0.5,y*CELL+0.5,CELL-1,CELL-1); }
+    else if(t===WALL){ c.fillStyle="#888"; c.fillRect(x*CELL,y*CELL,CELL,CELL); }
+  }
+}
+function robotRemainingCells(r){ if(!r.route)return []; const out=[]; for(let i=r.legIndex;i<r.route.legs.length;i++) for(const c of r.route.legs[i].cells) out.push(c); return out; }
+function renderMap(){
+  const c=mctx; c.drawImage(mapBG,0,0);
+  // hot shelves
+  for(const [k,v] of hotShelves){ const [x,y]=k.split(",").map(Number); c.fillStyle="rgba(10,125,32,"+(0.12+0.45*v)+")"; c.fillRect(x*CELL,y*CELL,CELL,CELL); }
+  // selected shelf highlight
+  if(selectedShelf){ const [x,y]=selectedShelf.split(",").map(Number); c.strokeStyle="#1f6feb"; c.lineWidth=2; c.strokeRect(x*CELL-1,y*CELL-1,CELL+2,CELL+2); }
+  // pack stations
+  c.font="bold 9px monospace"; c.textBaseline="middle"; c.textAlign="center";
+  for(const s of stations){ const px=s.x*CELL+CELL/2, py=s.y*CELL+CELL/2;
+    c.fillStyle="#fff7df"; c.fillRect(px-13,py-6,26,12); c.strokeStyle="#9a6700"; c.lineWidth=1; c.strokeRect(px-13,py-6,26,12);
+    c.fillStyle="#7a5200"; c.fillText(s.id,px,py); }
+  // routes + stops
+  for(const r of robots){ if(!r.route)continue;
+    const cells=robotRemainingCells(r); c.strokeStyle=r.color; c.lineWidth=1.2; c.globalAlpha=0.85; c.setLineDash([4,3]); c.beginPath();
+    cells.forEach((p,i)=>{ const px=p[0]*CELL+CELL/2, py=p[1]*CELL+CELL/2; i?c.lineTo(px,py):c.moveTo(px,py); }); c.stroke(); c.setLineDash([]); c.globalAlpha=1;
+    c.strokeStyle="#0a7d20"; c.lineWidth=1; for(const st of (r.route.stops||[])){ const px=st.x*CELL+CELL/2, py=st.y*CELL+CELL/2; c.beginPath(); c.arc(px,py,2.4,0,Math.PI*2); c.stroke(); }
+  }
+  // robots
+  c.textAlign="left"; c.font="bold 9px monospace";
+  for(const r of robots){ const rx=r.x*CELL, ry=r.y*CELL, RS=Math.max(CELL,8);
+    if(r.id-1===sel){ c.strokeStyle="#000"; c.lineWidth=1; c.beginPath(); c.arc(rx,ry,RS+3,0,Math.PI*2); c.stroke(); }
+    c.save(); c.translate(rx,ry); c.rotate(r.angle);
+    c.fillStyle=r.state==="offline"?"#999":r.color; c.strokeStyle="#000"; c.lineWidth=0.8; c.beginPath(); c.moveTo(RS,0); c.lineTo(-RS*0.65,-RS*0.6); c.lineTo(-RS*0.65,RS*0.6); c.closePath(); c.fill(); c.stroke(); c.restore();
+    c.fillStyle=r.color; c.fillText("R"+r.id, rx+RS+1, ry-RS*0.4);
+  }
+}
+
+//---------------------------- RAYCASTER (FPV) ------------------------
+const fpv=document.getElementById("fpv");
+const FPVW=560, FPVH=230; fpv.width=FPVW; fpv.height=FPVH;
+const fctx=fpv.getContext("2d");
+const FOV=Math.PI/2.3, WALLSCALE=0.82, MAXVIEW=46;
+function castRay(ang){
+  const sin=Math.sin(ang),cos=Math.cos(ang); let mapX=Math.floor(cam.x),mapY=Math.floor(cam.y);
+  const dX=Math.abs(1/(cos||1e-9)),dY=Math.abs(1/(sin||1e-9)); let stepX,stepY,sX,sY;
+  if(cos<0){stepX=-1;sX=(cam.x-mapX)*dX;}else{stepX=1;sX=(mapX+1-cam.x)*dX;}
+  if(sin<0){stepY=-1;sY=(cam.y-mapY)*dY;}else{stepY=1;sY=(mapY+1-cam.y)*dY;}
+  let side=0,t=EMPTY;
+  for(let i=0;i<256;i++){ if(sX<sY){sX+=dX;mapX+=stepX;side=0;}else{sY+=dY;mapY+=stepY;side=1;}
+    if(!inB(mapX,mapY)){t=WALL;break;} const cc=at(mapX,mapY); if(cc===WALL||cc===SHELF||cc===PACK){t=cc;break;} if((side===0?sX:sY)>MAXVIEW){t=EMPTY;break;} }
+  const dist=side===0?(sX-dX):(sY-dY); return {dist,side,type:t,cx:mapX,cy:mapY};
+}
+function renderFPV(){
+  const c=fctx,W=FPVW,H=FPVH;
+  c.fillStyle="#0a0a0a"; c.fillRect(0,0,W,H/2); c.fillStyle="#141414"; c.fillRect(0,H/2,W,H/2);
+  for(let col=0;col<W;col++){ const ray=cam.angle-FOV/2+(col/W)*FOV; const r=castRay(ray);
+    const perp=Math.max(0.05,r.dist*Math.cos(ray-cam.angle)); let lineH=(H/perp)*WALLSCALE; const shade=Math.max(0,1-perp/MAXVIEW); const baseTop=(H-lineH)/2;
+    if(r.type===WALL){ let v=Math.floor(70*shade)+(r.side?-12:0); c.fillStyle="rgb("+(v+8)+","+(v+8)+","+(v+10)+")"; c.fillRect(col,baseTop,1,lineH); }
+    else if(r.type===SHELF){ const top=baseTop,h=lineH; let b=Math.floor(120*shade)+(r.side?-18:0); c.fillStyle="rgb("+(b+30)+","+(b+12)+","+Math.floor(b*0.35)+")"; c.fillRect(col,top,1,h);
+      for(let l=0;l<4;l++){ const ly=top+h*(l/4); if(l%2===0){ c.fillStyle="rgba(0,0,0,0.10)"; c.fillRect(col,ly,1,h/4);} c.fillStyle="rgba(0,0,0,"+(0.5*shade+0.15)+")"; c.fillRect(col,ly,1,Math.max(1,h*0.012)); } }
+    else if(r.type===PACK){ const platH=lineH*0.32, top=(H/2)+lineH/2-platH; let a=Math.floor(160*shade); c.fillStyle="rgb("+(a+60)+","+Math.floor(a*0.7)+",0)"; c.fillRect(col,top,1,platH); } }
+  c.strokeStyle="rgba(255,176,0,0.5)"; c.lineWidth=1; c.beginPath(); c.moveTo(W/2-7,H/2);c.lineTo(W/2+7,H/2);c.moveTo(W/2,H/2-7);c.lineTo(W/2,H/2+7); c.stroke();
+}
+
+//------------------------ ISOMETRIC 3D (chase) ----------------------
+const isoCanvas=document.getElementById("iso");
+const ISOW=560,ISOH=230; isoCanvas.width=ISOW; isoCanvas.height=ISOH;
+const ictx=isoCanvas.getContext("2d");
+const ISO={HW:13,HH:6.5,ZS:10,R:18,GY:0.64};
+function isoP(wx,wy,z,cx,cy){ const rx=wx-cx,ry=wy-cy; return {x:ISOW/2+(rx-ry)*ISO.HW, y:ISOH*ISO.GY+(rx+ry)*ISO.HH-z*ISO.ZS}; }
+function drawIsoBox(c,wx,wy,t,cx,cy){
+  let h,top,east,south;
+  if(t===WALL){h=2.6;top="#4d4d4d";east="#343434";south="#262626";}
+  else if(t===SHELF){h=2.0;top="#7d6622";east="#574616";south="#3d3010";}
+  else {h=0.16;top="#5e4000";east="#3a2600";south="#2a1c00";}
+  const B=isoP(wx+1,wy,0,cx,cy),C=isoP(wx+1,wy+1,0,cx,cy),D=isoP(wx,wy+1,0,cx,cy);
+  const At=isoP(wx,wy,h,cx,cy),Bt=isoP(wx+1,wy,h,cx,cy),Ct=isoP(wx+1,wy+1,h,cx,cy),Dt=isoP(wx,wy+1,h,cx,cy);
+  c.fillStyle=east;c.beginPath();c.moveTo(B.x,B.y);c.lineTo(C.x,C.y);c.lineTo(Ct.x,Ct.y);c.lineTo(Bt.x,Bt.y);c.closePath();c.fill();
+  c.fillStyle=south;c.beginPath();c.moveTo(D.x,D.y);c.lineTo(C.x,C.y);c.lineTo(Ct.x,Ct.y);c.lineTo(Dt.x,Dt.y);c.closePath();c.fill();
+  if(t===SHELF){ c.strokeStyle="rgba(0,0,0,0.35)"; c.lineWidth=1; for(let l=1;l<3;l++){ const z=h*l/3; const e1=isoP(wx+1,wy,z,cx,cy),e2=isoP(wx+1,wy+1,z,cx,cy),s2=isoP(wx,wy+1,z,cx,cy); c.beginPath();c.moveTo(e1.x,e1.y);c.lineTo(e2.x,e2.y);c.lineTo(s2.x,s2.y);c.stroke(); } }
+  c.fillStyle=top;c.beginPath();c.moveTo(At.x,At.y);c.lineTo(Bt.x,Bt.y);c.lineTo(Ct.x,Ct.y);c.lineTo(Dt.x,Dt.y);c.closePath();c.fill();
+}
+function shadeHex(hex,f){ const n=parseInt(hex.slice(1),16); return "rgb("+Math.floor(((n>>16)&255)*f)+","+Math.floor(((n>>8)&255)*f)+","+Math.floor((n&255)*f)+")"; }
+function drawIsoRobot(c,r,cx,cy){
+  const h=0.5,w=0.8,wx=r.x-w/2,wy=r.y-w/2;
+  const B=isoP(wx+w,wy,0,cx,cy),C=isoP(wx+w,wy+w,0,cx,cy),D=isoP(wx,wy+w,0,cx,cy);
+  const At=isoP(wx,wy,h,cx,cy),Bt=isoP(wx+w,wy,h,cx,cy),Ct=isoP(wx+w,wy+w,h,cx,cy),Dt=isoP(wx,wy+w,h,cx,cy);
+  c.fillStyle=shadeHex(r.color,0.78);c.beginPath();c.moveTo(B.x,B.y);c.lineTo(C.x,C.y);c.lineTo(Ct.x,Ct.y);c.lineTo(Bt.x,Bt.y);c.closePath();c.fill();
+  c.fillStyle=shadeHex(r.color,0.55);c.beginPath();c.moveTo(D.x,D.y);c.lineTo(C.x,C.y);c.lineTo(Ct.x,Ct.y);c.lineTo(Dt.x,Dt.y);c.closePath();c.fill();
+  c.fillStyle=r.color;c.beginPath();c.moveTo(At.x,At.y);c.lineTo(Bt.x,Bt.y);c.lineTo(Ct.x,Ct.y);c.lineTo(Dt.x,Dt.y);c.closePath();c.fill();
+  const fx=Math.cos(r.angle),fy=Math.sin(r.angle); const nose=isoP(r.x+fx*0.55,r.y+fy*0.55,h,cx,cy),tail=isoP(r.x-fx*0.15,r.y-fy*0.15,h,cx,cy);
+  c.strokeStyle="#000"; c.lineWidth=2; c.beginPath();c.moveTo(tail.x,tail.y);c.lineTo(nose.x,nose.y);c.stroke(); c.fillStyle="#fff"; c.beginPath();c.arc(nose.x,nose.y,2,0,Math.PI*2);c.fill();
+}
+function renderIso(){
+  const c=ictx; c.fillStyle="#0b0b0b"; c.fillRect(0,0,ISOW,ISOH);
+  const cx=cam.x,cy=cam.y,R=ISO.R;
+  const x0=Math.max(0,Math.floor(cx-R)),x1=Math.min(COLS-1,Math.ceil(cx+R)),y0=Math.max(0,Math.floor(cy-R)),y1=Math.min(ROWS-1,Math.ceil(cy+R));
+  c.strokeStyle="rgba(255,255,255,0.035)"; c.lineWidth=1; c.beginPath();
+  for(let x=x0;x<=x1+1;x++){ const a=isoP(x,y0,0,cx,cy),b=isoP(x,y1+1,0,cx,cy); c.moveTo(a.x,a.y);c.lineTo(b.x,b.y); }
+  for(let y=y0;y<=y1+1;y++){ const a=isoP(x0,y,0,cx,cy),b=isoP(x1+1,y,0,cx,cy); c.moveTo(a.x,a.y);c.lineTo(b.x,b.y); } c.stroke();
+  if(cam.route){ const cells=robotRemainingCells(cam); c.strokeStyle="#ff7a00"; c.lineWidth=2; c.beginPath(); cells.forEach((p,i)=>{ const s=isoP(p[0]+0.5,p[1]+0.5,0.03,cx,cy); i?c.lineTo(s.x,s.y):c.moveTo(s.x,s.y); }); c.stroke(); }
+  const items=[];
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){ const t=at(x,y); if(t===EMPTY)continue; items.push({x,y,t,d:(x+0.5-cx)+(y+0.5-cy)}); }
+  for(const r of robots){ if(r.state!=="offline"&&Math.abs(r.x-cx)<=R&&Math.abs(r.y-cy)<=R) items.push({robot:r,d:(r.x-cx)+(r.y-cy)}); }
+  items.sort((a,b)=>a.d-b.d);
+  for(const it of items){ if(it.robot) drawIsoRobot(c,it.robot,cx,cy); else drawIsoBox(c,it.x,it.y,it.t,cx,cy); }
+  // PS labels
+  c.font="bold 9px monospace"; c.textAlign="center"; c.textBaseline="middle";
+  for(const s of stations){ if(Math.abs(s.x-cx)>R||Math.abs(s.y-cy)>R)continue; const p=isoP(s.x+0.5,s.y+0.5,0.6,cx,cy); c.fillStyle="#000"; c.fillRect(p.x-13,p.y-7,26,12); c.strokeStyle="#888"; c.lineWidth=1; c.strokeRect(p.x-13,p.y-7,26,12); c.fillStyle="#fff"; c.fillText(s.id,p.x,p.y-1); }
+  c.textAlign="left";
+}
+
+//------------------------------ DASHBOARD ----------------------------
+const $=id=>document.getElementById(id);
+function fmt(sec){ if(!isFinite(sec)||sec<0)return "—"; sec=Math.round(sec); const h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60; return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0")+":"+String(s).padStart(2,"0"); }
+function robotETA(r){ if(!r.route)return Infinity; let cells=0; for(let i=r.legIndex;i<r.route.legs.length;i++) cells+=r.route.legs[i].cells.length; if(r.spline) cells-=Math.min(cells, r.s); const stops=r.route.legs.slice(r.legIndex).filter(l=>l.type==="pick").length; return cells/r.maxSpeed + stops*PICK_T + PACK_T; }
+function statusText(r){ if(r.state==="offline")return "offline"; if(r.state==="charging")return "charging"; if(r.state==="idle")return "idle"; if(r.state==="picking")return "picking"; if(r.state==="packing")return "packing"; return "moving"; }
+function modeText(r){ if(r.state==="charging"||r.state==="to_charge")return "charge"; if(r.state==="offline")return "—"; if(!r.route)return "idle"; const t=r.curLeg&&r.curLeg.type; return t==="pick"?"pick":t==="pack"?"to_pack":"idle"; }
+function taskText(r){ if(r.state==="offline")return "—"; if(r.state==="charging")return "charging "+(r.chargeStation?r.chargeStation.id:""); if(r.state==="to_charge")return "to charge "+(r.chargeStation?r.chargeStation.id:""); if(!r.route)return "—"; if(r.state==="picking"||r.state==="to_pick")return "picking"; if(r.state==="to_pack")return "to pack "+(r.station?r.station.id:""); if(r.state==="packing")return "packing "+(r.station?r.station.id:""); return "—"; }
+
+function renderDash(){
+  // status strip
+  $("st-fleet").textContent=N_ROBOTS; $("st-pending").textContent=pendingOrders.length; $("st-queued").textContent=batchQueue.length;
+  $("st-delivered").textContent=delivered; const mins=simTime/60; $("st-thruput").textContent=(mins>0.05?(delivered/mins).toFixed(1):"0")+"/min";
+  // fleet table
+  let h="";
+  for(const r of robots){ const st=statusText(r); const battCls=r.batt<20?"bad":r.batt<40?"":""; const stCls=st==="offline"?"bad":st==="charging"?"selc":st==="idle"?"muted":"";
+    h+="<tr"+(r.id-1===sel?' class="sel"':"")+'><td style="color:'+r.color+'">R'+r.id+'</td><td class="'+stCls+'">'+st+'</td><td>'+modeText(r)+'</td>'+
+      '<td class="'+battCls+'">'+Math.round(r.batt)+'%</td><td>('+r.x.toFixed(0)+','+r.y.toFixed(0)+')</td><td>'+(((r.angle*180/Math.PI)%360+360)%360|0)+'</td><td>'+(r.speed*CELL_M).toFixed(1)+'</td>'+
+      '<td>'+taskText(r)+'</td><td>'+(r.batch?"B"+r.batch.id:"—")+'</td><td>'+(r.route?fmt(robotETA(r)):"—")+'</td><td class="muted">'+r.lastEvent+'</td></tr>'; }
+  $("fleet-body").innerHTML=h;
+  // pack stations
+  h=""; for(const s of stations){ let eta=Infinity; for(const r of robots){ if(r.route&&r.station===s&&(r.state==="to_pack"||r.state==="packing"||r.state==="to_charge"||r.state==="charging")) eta=Math.min(eta,robotETA(r)); } if(!isFinite(eta)&&s.queue>0)eta=s.queue*PACK_T;
+    h+="<tr><td>"+s.id+'</td><td class="n">'+s.queue+'</td><td class="n">'+(s.util*100).toFixed(0)+'%</td><td class="n">'+fmt(eta)+"</td></tr>"; }
+  $("ps-body").innerHTML=h;
+  // batch allocation
+  $("ba-weight").textContent="dist="+W.a+" queue="+W.b+" util="+W.c;
+  if(lastDecision){ $("ba-batch").textContent="Batch B"+lastDecision.batchId+" (R"+lastDecision.robotId+")";
+    $("ba-scores").innerHTML=lastDecision.scores.map(s=>'<div class="row'+(s.id===lastDecision.chosen?" win":"")+'"><span>'+s.id+"</span><span>score: "+s.J.toFixed(2)+(s.id===lastDecision.chosen?"  ← selected":"")+"</span></div>").join(""); }
+  // active batches
+  const ab=[];
+  for(const r of robots){ if(r.batch){ const stt = (r.state==="to_pack"||r.state==="packing")?"to_pack":(r.state==="picking"||r.state==="to_pick")?"picking":"active";
+    ab.push({id:r.batch.id, status:stt, items:r.batch.totalItems, picked:r.pickedUnits, robot:"R"+r.id, prog:Math.min(100,Math.round(r.pickedUnits/Math.max(1,r.batch.totalItems)*100)), eta:fmt(robotETA(r)), dest:r.station?r.station.id:"—"}); } }
+  for(const b of batchQueue) ab.push({id:b.id,status:"queued",items:b.totalItems,picked:0,robot:"—",prog:0,eta:"—",dest:"—"});
+  $("ab-body").innerHTML=ab.slice(0,8).map(b=>"<tr><td>B"+b.id+"</td><td>"+b.status+'</td><td>'+b.items+"/"+b.items+'</td><td>'+b.picked+"/"+b.items+'</td><td>'+b.robot+'</td><td><span class="bar"><i style="width:'+b.prog+'%"></i></span> '+b.prog+'%</td><td>'+b.eta+'</td><td>'+b.dest+"</td></tr>").join("")||'<tr><td class="muted">—</td></tr>';
+  // orders in
+  const ords=allOrders.filter(o=>o.status==="queued"||o.status==="batched"||o.status==="picking").slice(-9).reverse();
+  $("ord-body").innerHTML=ords.map(o=>{ let eta="—"; if(o.status==="picking"||o.status==="batched"){ const r=robots.find(rr=>rr.batch&&rr.batch.id===o.batchId); if(r)eta=fmt(robotETA(r)); }
+    const stc=o.priority?' class="'+(o.priority===2?"bad":"")+'"':""; return "<tr"+stc+"><td>O-"+o.id+'</td><td class="n">'+orderUnits(o)+'</td><td>'+(o.status==="picking"?"picking":o.status)+'</td><td>'+eta+"</td></tr>"; }).join("")||'<tr><td class="muted">—</td></tr>';
+  // map details
+  renderMapDetails();
+  // robot select options (build once)
+  const sel0=$("rc-robot"); if(sel0.options.length!==N_ROBOTS){ sel0.innerHTML=robots.map(r=>'<option value="'+(r.id-1)+'">R'+r.id+'</option>').join(""); }
+  sel0.value=sel;
+}
+function renderMapDetails(){
+  const el=$("md-body");
+  if(!selectedShelf){ el.innerHTML='<div class="muted">— click a shelf on the map —</div>'; return; }
+  const [x,y]=selectedShelf.split(",").map(Number); const t=at(x,y);
+  if(t===PACK){ const s=stations.find(s=>s.x===x&&s.y===y); el.innerHTML='<div class="kv"><span>Type:</span><span>Pack Station</span></div><div class="kv"><span>ID:</span><span>'+(s?s.id:"")+'</span></div><div class="kv"><span>Location:</span><span>('+x+','+y+')</span></div><div class="kv"><span>Queue:</span><span>'+(s?s.queue:0)+'</span></div><div class="kv"><span>Util:</span><span>'+(s?(s.util*100).toFixed(0):0)+'%</span></div>'; return; }
+  const sh=shelves.get(selectedShelf);
+  if(!sh){ el.innerHTML='<div class="kv"><span>Type:</span><span>'+(t===WALL?"Wall":"Aisle")+'</span></div><div class="kv"><span>Location:</span><span>('+x+','+y+')</span></div>'; return; }
+  const items=sh.items.map(i=>'&nbsp;&nbsp;- '+i.sku+' ('+i.qty+')').join("<br>");
+  const avail=sh.items.some(i=>i.qty>0);
+  el.innerHTML='<div class="kv"><span>Type:</span><span>Shelf</span></div><div class="kv"><span>ID:</span><span>'+sh.id+'</span></div><div class="kv"><span>Location:</span><span>('+x+','+y+')</span></div><div style="margin-top:3px">Items:</div>'+items+'<div class="kv" style="margin-top:3px"><span>Status:</span><span class="'+(avail?"ok":"bad")+'">'+(avail?"available":"empty")+'</span></div>';
+}
+
+function log(cls,msg){
+  const el=$("log"); const d=new Date(); const ts=d.toLocaleTimeString("en-GB");
+  const div=document.createElement("div"); const c=cls==="d"?"ok":cls==="e"?"bad":cls==="b"?"selc":"";
+  div.innerHTML='<span class="tt">'+ts+'</span> <span class="'+c+'">'+msg+'</span>';
+  el.insertBefore(div,el.firstChild); while(el.childNodes.length>80) el.removeChild(el.lastChild);
+}
+
+//------------------------- interaction / controls --------------------
+mapCanvas.addEventListener("mousedown",e=>{
+  const r=mapCanvas.getBoundingClientRect(); const mx=(e.clientX-r.left)*(mapCanvas.width/r.width)/CELL, my=(e.clientY-r.top)*(mapCanvas.height/r.height)/CELL;
+  let bi=-1,bd=1e9; robots.forEach(rb=>{ if(rb.state==="offline")return; const d=Math.hypot(rb.x-mx,rb.y-my); if(d<bd){bd=d;bi=rb.id-1;} });
+  if(bd<3){ sel=bi; renderDash(); return; }
+  const cx=Math.floor(mx),cy=Math.floor(my); if(inB(cx,cy)&&(at(cx,cy)===SHELF||at(cx,cy)===PACK)){ selectedShelf=cx+","+cy; renderDash(); }
+});
+
+let paused=false, simSpeed=1, autoRefresh=true;
+$("rc-play").onclick=()=>{ paused=false; };
+$("rc-pause").onclick=()=>{ paused=true; };
+$("rc-step").onclick=()=>{ const dt=1/30; simTime+=dt; scheduler(dt); for(const r of robots) updateRobot(r,dt); renderDash(); };
+$("rc-slow").onclick=()=>{ simSpeed=Math.max(0.25,+(simSpeed-0.25).toFixed(2)); $("rc-speed").textContent="x"+simSpeed.toFixed(1); };
+$("rc-fast").onclick=()=>{ simSpeed=Math.min(4,+(simSpeed+0.25).toFixed(2)); $("rc-speed").textContent="x"+simSpeed.toFixed(1); };
+$("rc-robot").onchange=e=>{ sel=+e.target.value; };
+$("autorefresh").onclick=function(){ autoRefresh=!autoRefresh; this.textContent="[auto-refresh: "+(autoRefresh?"on":"off")+"]"; };
+const goMap={map:"p-map",fleet:"p-fleet",batches:"p-batches",orders:"p-orders",log:"p-log",ctl:"p-ctl"};
+function goTo(key){ const el=$(goMap[key]); if(el){ el.scrollIntoView({behavior:"smooth",block:"center"}); el.style.outline="2px solid #1f6feb"; setTimeout(()=>el.style.outline="",700); } }
+[...document.querySelectorAll(".tabs span[data-go]")].forEach(s=>s.onclick=()=>goTo(s.dataset.go));
+[...document.querySelectorAll(".tabs span[data-href]")].forEach(s=>s.onclick=()=>{ location.href=s.dataset.href; });
+window.addEventListener("keydown",e=>{ if(e.target.tagName==="SELECT")return;
+  const k=e.key.toLowerCase();
+  if(k===" "){ paused=!paused; e.preventDefault(); return; }
+  if(k==="c"){ location.href="compare.html"; return; }
+  ({m:"map",f:"fleet",b:"batches",o:"orders",l:"log",s:"ctl"})[k] && goTo(({m:"map",f:"fleet",b:"batches",o:"orders",l:"log",s:"ctl"})[k]);
+});
+
+//------------------------------ MAIN LOOP ----------------------------
+let lastT=performance.now(), tClock=0;
+function loop(now){
+  let dt=Math.min(0.05,(now-lastT)/1000); lastT=now; dt*=simSpeed;
+  if(!paused){ simTime+=dt; scheduler(dt); for(const r of robots) updateRobot(r,dt); }
+  cam=robots[sel]||robots[0];
+  renderMap(); renderIso(); renderFPV();
+  // live header
+  const hdg=((cam.angle*180/Math.PI)%360+360)%360;
+  $("st-hdg").textContent=hdg.toFixed(0); $("st-spd").textContent=(cam.speed*CELL_M).toFixed(1)+" m/s";
+  $("cam-id").textContent="R"+cam.id; $("fpv-hdg").textContent=hdg.toFixed(0); $("fpv-spd").textContent=(cam.speed*CELL_M).toFixed(1); $("rc-hdg").textContent=hdg.toFixed(0);
+  tClock+=dt; if(tClock>=1){ tClock=0; const d=new Date(); $("clock").textContent=d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")+" "+d.toLocaleTimeString("en-GB"); }
+  requestAnimationFrame(loop);
+}
+
+renderStaticMap();
+selectedShelf = [...shelves.keys()][Math.floor(shelves.size*0.4)];
+$("rc-speed").textContent="x1.0";
+log("t","system online — "+catalog.length.toLocaleString()+" SKUs / "+shelves.size.toLocaleString()+" slots ("+catalog.filter(s=>s.nloc>1).length.toLocaleString()+" multi-location), "+stations.length+" pack stations, "+N_ROBOTS+" robots");
+for(let i=0;i<8;i++) spawnOrder();
+// optional deterministic fast-forward for screenshots/demos:  index.html?ff=SECONDS
+(function(){ const q=new URLSearchParams(location.search).get("ff"); if(!q)return; const steps=Math.min(20000,Math.max(0,(+q||0))*20); const ar=autoRefresh; autoRefresh=false; for(let i=0;i<steps;i++){ simTime+=0.05; scheduler(0.05); for(const r of robots) updateRobot(r,0.05); } autoRefresh=ar; })();
+renderDash();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
